@@ -255,8 +255,9 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/last.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/custom_yolo_samll_best.pt', help='model.pt path')
     ## Make the changes on weights for your specific detection
+    # custom_yolo_samll_best or custom_yolo_large_best
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
