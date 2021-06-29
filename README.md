@@ -3,6 +3,9 @@
 ``` Command ```
 Create a new environment
 
-``` Command ```
 install all the dependency
+
+
+``` Command ```
+
 pip install -r requirement.txt
