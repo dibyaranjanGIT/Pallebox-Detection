@@ -3,7 +3,7 @@
 # Palletbox-Detection
 
 
-Create a new environment with 3.7 python version
+Create a new environment with 3.6 python version
 
 install all the dependency
 
