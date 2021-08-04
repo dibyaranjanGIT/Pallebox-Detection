@@ -1,11 +1,13 @@
 """
 Usage:
-    python track-custom.py --source final.mp4 --show-vid
+    python track-custom.py --source PalleteVideo.mp4 --show-vid
+    python track-custom.py --source PalleteVideo.mp4 --show-vid --conf-thres 0.6
 """
 
 import sys
+from distance_from_camer import find_marker,focal_length,distance_to_camera
 sys.path.insert(0, './yolov5')
-
+import tensorflow as tf
 from yolov5.utils.google_utils import attempt_download
 from yolov5.models.experimental import attempt_load
 from yolov5.utils.datasets import LoadImages, LoadStreams
@@ -62,23 +64,37 @@ def compute_color_for_labels(label):
 
 
 def draw_boxes(img, bbox, identities=None, offset=(0, 0)):
+    #print(identities)
     for i, box in enumerate(bbox):
+        #print(i)
         x1, y1, x2, y2 = [int(i) for i in box]
         x1 += offset[0]
         x2 += offset[0]
         y1 += offset[1]
         y2 += offset[1]
+
+        #drwaing a rectangle
+        height = img.shape[0]
+        width = img.shape[1]
+        #cv2.rectangle(img, (300,300), (width-400, height-400), (0,0,255), 5 )
+
+        idss = []
         # box text and bar
         id = int(identities[i]) if identities is not None else 0
+        idss = idss.append(id)
+        count=idss
+
         color = compute_color_for_labels(id)
-        label = '{}{:d}'.format("", id)
+        label = '{}{:d}'.format("Pallet_", id)
         t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 2, 2)[0]
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
         cv2.rectangle(
             img, (x1, y1), (x1 + t_size[0] + 3, y1 + t_size[1] + 4), color, -1)
         cv2.putText(img, label, (x1, y1 +
                                  t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 2, [255, 255, 255], 2)
-    return img
+        #cv2.putText(img, 'idssdfdessd', (200, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 5)
+
+    return img,count
 
 
 def detect(opt):
@@ -100,6 +116,7 @@ def detect(opt):
 
     # Initialize
     device = select_device(opt.device)
+
 
     # The MOT16 evaluation runs multiple inference streams in parallel, each one writing to
     # its own .txt file. Hence, in that case, the output folder is not restored
@@ -143,12 +160,17 @@ def detect(opt):
     txt_file_name = source.split('/')[-1].split('.')[0]
     txt_path = str(Path(out)) + '/' + txt_file_name + '.txt'
 
+
+    idss = [] # declaring a list for counting the palletboxes identities
+
     for frame_idx, (path, img, im0s, vid_cap) in enumerate(dataset):
+
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
+
 
         # Inference
         t1 = time_synchronized()
@@ -159,7 +181,7 @@ def detect(opt):
             pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
         t2 = time_synchronized()
 
-        # Process detections
+
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
@@ -168,6 +190,13 @@ def detect(opt):
 
             s += '%gx%g ' % img.shape[2:]  # print string
             save_path = str(Path(out) / Path(p).name)
+
+            height = im0.shape[0]
+            width = im0.shape[1]
+
+            #creating rectangle box for ROI
+            cv2.rectangle(im0, (300,325), (width-500, height-270), (0,0,255), 4 )
+
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -181,26 +210,39 @@ def detect(opt):
 
                 xywh_bboxs = []
                 confs = []
+                classe = []
 
                 # Adapt detections to deep sort input format
                 for *xyxy, conf, cls in det:
                     # to deep sort format
                     x_c, y_c, bbox_w, bbox_h = xyxy_to_xywh(*xyxy)
                     xywh_obj = [x_c, y_c, bbox_w, bbox_h]
-                    xywh_bboxs.append(xywh_obj)
-                    confs.append([conf.item()])
+                    if (300.0<xywh_obj[0]<1420.0) and (325.0 < xywh_obj[1] < 755.0):
+                        xywh_bboxs.append(xywh_obj)
+                        confs.append([conf.item()])
+                try:
+                    xywhs = torch.Tensor(xywh_bboxs)
+                    confss = torch.Tensor(confs)
 
-                xywhs = torch.Tensor(xywh_bboxs)
-                confss = torch.Tensor(confs)
 
                 # pass detections to deepsort
-                outputs = deepsort.update(xywhs, confss, im0)
+                    outputs = deepsort.update(xywhs, confss, im0)
+                    previous_outputs = outputs
+                except:
+                    outputs = previous_outputs
+                    pass
 
-                # draw boxes for visualization
+
+                ## draw boxes for visualization
                 if len(outputs) > 0:
+
                     bbox_xyxy = outputs[:, :4]
                     identities = outputs[:, -1]
-                    draw_boxes(im0, bbox_xyxy, identities)
+                    idss.append(identities[0])
+
+
+                    im0,count = draw_boxes(im0, bbox_xyxy, identities)
+
                     # to MOT format
                     tlwh_bboxs = xyxy_to_tlwh(bbox_xyxy)
 
@@ -216,15 +258,21 @@ def detect(opt):
                                 f.write(('%g ' * 10 + '\n') % (frame_idx, identity, bbox_top,
                                                             bbox_left, bbox_w, bbox_h, -1, -1, -1, -1))  # label format
 
+
             else:
                 deepsort.increment_ages()
 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
+            count_pa = set(idss)
+
             # Stream results
             if show_vid:
+                im0 = cv2.putText(im0, 'No of pallets : '+str(len(count_pa)), (200, 200), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 4)
                 cv2.imshow(p, im0)
+                fps = cv2.CAP_PROP_FPS
+
                 if cv2.waitKey(1) == ord('q'):  # q to quit
                     raise StopIteration
 
@@ -253,24 +301,24 @@ def detect(opt):
     print('Done. (%.3fs)' % (time.time() - t0))
 
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/custom_yolo_samll_best.pt', help='model.pt path')
+    parser.add_argument('--yolo_weights', type=str, default='yolov5/weights/custom_small_best.pt', help='model.pt path')
     ## Make the changes on weights for your specific detection
-    # custom_yolo_samll_best or custom_yolo_large_best
+    # custom_yolo_large_best or custom_yolo_medium_best or custom_yolo_small_best or custom_small_best
     parser.add_argument('--deep_sort_weights', type=str, default='deep_sort_pytorch/deep_sort/deep/checkpoint/ckpt.t7', help='ckpt.t7 path')
     # file/folder, 0 for webcam
     parser.add_argument('--source', type=str, default='0', help='source')
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
-    parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
+    parser.add_argument('--iou-thres', type=float, default=0.4, help='IOU threshold for NMS')
     parser.add_argument('--fourcc', type=str, default='mp4v', help='output video codec (verify ffmpeg support)')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-vid', action='store_true', help='save video tracking results')
     parser.add_argument('--save-txt', action='store_true', help='save MOT compliant results to *.txt')
-    # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --class 0, or --class 16 17')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
